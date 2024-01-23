@@ -71,15 +71,30 @@ def convert(base_model_path, checkpoint_path, LORA_PREFIX_UNET, LORA_PREFIX_TEXT
             pair_keys.append(key)
             pair_keys.append(key.replace("lora_up", "lora_down"))
 
-        # update weight
-        if len(state_dict[pair_keys[0]].shape) == 4:
-            weight_up = state_dict[pair_keys[0]].squeeze(3).squeeze(2).to(torch.float32)
-            weight_down = state_dict[pair_keys[1]].squeeze(3).squeeze(2).to(torch.float32)
-            curr_layer.weight.data += alpha * torch.mm(weight_up, weight_down).unsqueeze(2).unsqueeze(3)
+        is_linear = type(curr_layer) in [torch.nn.Linear, torch.nn.modules.linear.NonDynamicallyQuantizableLinear,
+                                         torch.nn.MultiheadAttention]
+        is_conv = type(curr_layer) in [torch.nn.Conv2d]
+
+        if is_linear:
+            # update linear weights
+            if len(state_dict[pair_keys[0]].shape) == 4:
+                weight_up = state_dict[pair_keys[0]].squeeze(3).squeeze(2).to(torch.float32)
+                weight_down = state_dict[pair_keys[1]].squeeze(3).squeeze(2).to(torch.float32)
+                curr_layer.weight.data += alpha * torch.mm(weight_up, weight_down).unsqueeze(2).unsqueeze(3)
+            else:
+                weight_up = state_dict[pair_keys[0]].to(torch.float32)
+                weight_down = state_dict[pair_keys[1]].to(torch.float32)
+                curr_layer.weight.data += alpha * torch.mm(weight_up, weight_down)
+
+        elif is_conv:
+            # update conv weights
+            weight_up = state_dict[pair_keys[0]].reshape(state_dict[pair_keys[0]].shape[0], -1)
+            weight_down = state_dict[pair_keys[1]].reshape(state_dict[pair_keys[1]].shape[0], -1)
+            updown = (weight_up @ weight_down).reshape(curr_layer.weight.shape)
+            curr_layer.weight.data += alpha * updown
+
         else:
-            weight_up = state_dict[pair_keys[0]].to(torch.float32)
-            weight_down = state_dict[pair_keys[1]].to(torch.float32)
-            curr_layer.weight.data += alpha * torch.mm(weight_up, weight_down)
+            AssertionError("Unsupported layer {}".format(key))
 
         # update visited list
         for item in pair_keys:
