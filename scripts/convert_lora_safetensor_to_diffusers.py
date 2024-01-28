@@ -30,7 +30,7 @@ def convert(base_model_path, checkpoint_path, LORA_PREFIX_UNET, LORA_PREFIX_TEXT
     # load LoRA weight from .safetensors
     state_dict = load_file(checkpoint_path)
 
-    visited = []
+    visited = set()
 
     # directly update weight in diffusers model
     for key in state_dict:
@@ -98,7 +98,7 @@ def convert(base_model_path, checkpoint_path, LORA_PREFIX_UNET, LORA_PREFIX_TEXT
 
         # update visited list
         for item in pair_keys:
-            visited.append(item)
+            visited.add(item)
 
     return pipeline
 
